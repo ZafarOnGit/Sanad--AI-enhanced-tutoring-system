@@ -1,0 +1,882 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userDocExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function userActive() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && 'email' in request.auth.token && (
+        request.auth.token.email == 'admin@sanad.demo' ||
+        (request.auth.token.email == 'hafisali.phd@gmail.com' &&
+          'email_verified' in request.auth.token &&
+          request.auth.token.email_verified == true)
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isBootstrappedAdmin() ||
+        (userDocExists() && userRole() == 'admin' && userActive())
+      );
+    }
+
+    function isActiveStudent() {
+      return isSignedIn() && userDocExists() && userRole() == 'student' && userActive();
+    }
+
+    function isActiveTutor() {
+      return isSignedIn() && userDocExists() && userRole() == 'tutor' && userActive();
+    }
+
+    function isDemoTutorEmail() {
+      return isSignedIn() && 'email' in request.auth.token &&
+        request.auth.token.email is string &&
+        request.auth.token.email.matches('^t([1-9]|10)@sanad\\.demo$');
+    }
+
+    function isValidEncryptedBlob(blob) {
+      return blob is map &&
+        blob.keys().hasAll(['iv', 'tag', 'ciphertext']) &&
+        blob.keys().hasOnly(['iv', 'tag', 'ciphertext']) &&
+        blob.iv is string && blob.iv.size() >= 8 && blob.iv.size() <= 64 &&
+        blob.tag is string && blob.tag.size() >= 8 && blob.tag.size() <= 64 &&
+        blob.ciphertext is string && blob.ciphertext.size() >= 1 && blob.ciphertext.size() <= 950000;
+    }
+
+    function isValidStringArray(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'campus', 'refId', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'name', 'role', 'applicantType', 'campus', 'refId', 'active', 'status', 'subjects', 'sheetEmail', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        data.role in ['student', 'tutor', 'admin', 'applicant'] &&
+        (!('applicantType' in data) || data.applicantType in ['student', 'faculty']) &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 100 &&
+        data.refId is string && data.refId.size() >= 1 && data.refId.size() <= 64 &&
+        data.active is bool &&
+        (!('status' in data) || data.status in ['pending', 'approved', 'rejected', 'disabled']) &&
+        (!('subjects' in data) || (data.subjects is string && data.subjects.size() <= 300)) &&
+        (!('sheetEmail' in data) || (data.sheetEmail is string && data.sheetEmail.size() <= 200)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCourse(data) {
+      return data.keys().hasAll(['code', 'title', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['code', 'title', 'department', 'campus', 'active', 'createdAt', 'updatedAt']) &&
+        data.code is string && data.code.size() >= 2 && data.code.size() <= 32 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        (!('department' in data) || (data.department is string && data.department.size() <= 120)) &&
+        (!('campus' in data) || (data.campus is string && data.campus.size() <= 100)) &&
+        data.active is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidNumberArray(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is number);
+    }
+
+    function isValidMaterial(data) {
+      return data.keys().hasAll(['fileName', 'courseCode', 'courseName', 'uploadedAt', 'uploadedBy', 'status', 'chunkCount', 'size', 'updatedAt']) &&
+        data.keys().hasOnly(['fileName', 'topicTitle', 'courseCode', 'courseName', 'fileUrl', 'storagePath', 'storageMode', 'partCount', 'uploadedAt', 'uploadedBy', 'status', 'chunkCount', 'size', 'errorMessage', 'updatedAt']) &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 255 &&
+        (!('topicTitle' in data) || (data.topicTitle is string && data.topicTitle.size() <= 255)) &&
+        data.courseCode is string && data.courseCode.size() >= 2 && data.courseCode.size() <= 32 &&
+        data.courseName is string && data.courseName.size() >= 1 && data.courseName.size() <= 200 &&
+        (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() <= 2000)) &&
+        (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 500)) &&
+        (!('storageMode' in data) || data.storageMode in ['storage', 'firestore_parts', 'text_only']) &&
+        (!('partCount' in data) || (data.partCount is number && data.partCount >= 0 && data.partCount <= 200)) &&
+        data.uploadedAt is timestamp &&
+        data.uploadedBy is string && data.uploadedBy.size() >= 1 && data.uploadedBy.size() <= 200 &&
+        data.status in ['uploading', 'indexing', 'indexed', 'failed'] &&
+        data.chunkCount is number && data.chunkCount >= 0 && data.chunkCount <= 10000 &&
+        data.size is number && data.size >= 1 && data.size <= 26214400 &&
+        (!('errorMessage' in data) || (data.errorMessage is string && data.errorMessage.size() <= 1000)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMaterialFilePart(data) {
+      return data.keys().hasAll(['materialId', 'partIndex', 'totalParts', 'data', 'createdAt']) &&
+        data.keys().hasOnly(['materialId', 'partIndex', 'totalParts', 'data', 'createdAt']) &&
+        data.materialId is string && data.materialId.size() >= 1 && data.materialId.size() <= 128 &&
+        data.partIndex is number && data.partIndex >= 0 && data.partIndex <= 200 &&
+        data.totalParts is number && data.totalParts >= 1 && data.totalParts <= 200 &&
+        data.data is string && data.data.size() >= 1 && data.data.size() <= 720000 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidChunkEmbedding(emb) {
+      return isValidNumberArray(emb, 4096) || emb is vector;
+    }
+
+    function isValidChunk(data) {
+      return data.keys().hasAll(['materialId', 'courseCode', 'courseName', 'fileName', 'chunkIndex', 'text', 'embedding', 'createdAt']) &&
+        data.keys().hasOnly(['materialId', 'courseCode', 'courseName', 'fileName', 'chunkIndex', 'text', 'embedding', 'embeddingModel', 'embeddingDim', 'createdAt']) &&
+        data.materialId is string && data.materialId.size() >= 1 && data.materialId.size() <= 128 &&
+        data.courseCode is string && data.courseCode.size() >= 2 && data.courseCode.size() <= 32 &&
+        data.courseName is string && data.courseName.size() >= 1 && data.courseName.size() <= 200 &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 255 &&
+        data.chunkIndex is number && data.chunkIndex >= 0 && data.chunkIndex <= 10000 &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 20000 &&
+        isValidChunkEmbedding(data.embedding) &&
+        (!('embeddingModel' in data) || (data.embeddingModel is string && data.embeddingModel.size() >= 1 && data.embeddingModel.size() <= 80)) &&
+        (!('embeddingDim' in data) || (data.embeddingDim is number && data.embeddingDim >= 1 && data.embeddingDim <= 4096)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAttachment(att) {
+      return att is map &&
+        att.keys().hasAll(['fileName', 'mimeType', 'size', 'extractedText']) &&
+        att.keys().hasOnly(['fileName', 'mimeType', 'size', 'extractedText']) &&
+        att.fileName is string && att.fileName.size() >= 1 && att.fileName.size() <= 255 &&
+        att.mimeType in ['image/png', 'image/jpeg', 'application/pdf'] &&
+        att.size is number && att.size >= 1 && att.size <= 10485760 &&
+        att.extractedText is string && att.extractedText.size() <= 40000;
+    }
+
+    function isValidAttachmentsList(list) {
+      return list is list &&
+        list.size() <= 3 &&
+        (list.size() == 0 || isValidAttachment(list[0])) &&
+        (list.size() < 2 || isValidAttachment(list[1])) &&
+        (list.size() < 3 || isValidAttachment(list[2]));
+    }
+
+    function isValidRequest(data) {
+      return data.keys().hasAll(['studentUid', 'studentEmail', 'studentName', 'campus', 'course', 'status', 'encryptedText', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['studentUid', 'studentEmail', 'studentName', 'campus', 'course', 'topic', 'status', 'encryptedText', 'encryptedStudentNote', 'encryptedBrief', 'attachments', 'diagScore', 'retestScore', 'weakSubtopics', 'tutor', 'when', 'sheetRequestId', 'createdAt', 'updatedAt']) &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        data.studentEmail is string && data.studentEmail.size() >= 3 && data.studentEmail.size() <= 200 &&
+        data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 150 &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 100 &&
+        data.course is string && data.course.size() >= 2 && data.course.size() <= 32 &&
+        (!('topic' in data) || (data.topic is string && data.topic.size() <= 160)) &&
+        data.status in ['Open', 'Diagnostic', 'Study Pack', 'Resolved by AI', 'Escalated to tutor', 'Booked with tutor', 'Waitlist', 'Cancelled'] &&
+        isValidEncryptedBlob(data.encryptedText) &&
+        (!('encryptedStudentNote' in data) || isValidEncryptedBlob(data.encryptedStudentNote)) &&
+        (!('encryptedBrief' in data) || isValidEncryptedBlob(data.encryptedBrief)) &&
+        (!('attachments' in data) || isValidAttachmentsList(data.attachments)) &&
+        (!('diagScore' in data) || (data.diagScore is number && data.diagScore >= 0 && data.diagScore <= 1)) &&
+        (!('retestScore' in data) || (data.retestScore is number && data.retestScore >= 0 && data.retestScore <= 1)) &&
+        (!('weakSubtopics' in data) || isValidStringArray(data.weakSubtopics, 20)) &&
+        (!('tutor' in data) || (data.tutor is string && data.tutor.size() <= 150)) &&
+        (!('when' in data) || (data.when is string && data.when.size() <= 120)) &&
+        (!('sheetRequestId' in data) || (data.sheetRequestId is string && data.sheetRequestId.size() <= 128)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDiagnostic(data) {
+      return data.keys().hasAll(['studentUid', 'requestId', 'stage', 'course', 'topic', 'score', 'totalQuestions', 'correctCount', 'encryptedAnswers', 'createdAt']) &&
+        data.keys().hasOnly(['studentUid', 'requestId', 'stage', 'course', 'topic', 'status', 'currentIndex', 'score', 'totalQuestions', 'correctCount', 'weakSubtopics', 'encryptedAnswers', 'encryptedWrittenAnswers', 'encryptedQuestions', 'encryptedStudyPack', 'createdAt', 'updatedAt']) &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        data.requestId is string && data.requestId.size() >= 1 && data.requestId.size() <= 128 &&
+        data.stage in ['diagnostic', 'retest'] &&
+        data.course is string && data.course.size() >= 2 && data.course.size() <= 32 &&
+        data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 160 &&
+        (!('status' in data) || data.status in ['in_progress', 'completed']) &&
+        (!('currentIndex' in data) || (data.currentIndex is number && data.currentIndex >= 0 && data.currentIndex <= 50)) &&
+        data.score is number && data.score >= 0 && data.score <= 1 &&
+        data.totalQuestions is number && data.totalQuestions >= 0 && data.totalQuestions <= 50 &&
+        data.correctCount is number && data.correctCount >= 0 && data.correctCount <= 50 &&
+        (!('weakSubtopics' in data) || isValidStringArray(data.weakSubtopics, 20)) &&
+        isValidEncryptedBlob(data.encryptedAnswers) &&
+        (!('encryptedWrittenAnswers' in data) || isValidEncryptedBlob(data.encryptedWrittenAnswers)) &&
+        (!('encryptedQuestions' in data) || isValidEncryptedBlob(data.encryptedQuestions)) &&
+        (!('encryptedStudyPack' in data) || isValidEncryptedBlob(data.encryptedStudyPack)) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['tutorUid', 'tutorId', 'tutorName', 'campus', 'date', 'start', 'end', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'tutorUid', 'tutorId', 'tutorName', 'campus', 'date', 'start', 'end', 'status',
+          'studentUid', 'studentName', 'studentEmail', 'requestId', 'course', 'topic',
+          'encryptedProblem', 'encryptedBrief', 'encryptedTutorNotes', 'encryptedTutorFeedback',
+          'attachments',
+          'rescheduleStatus', 'rescheduleReason', 'reschedulePreferredSlotId',
+          'reschedulePreferredWhen', 'rescheduleRequestedAt', 'rescheduleResponseNote',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.tutorUid is string && data.tutorUid.size() >= 1 && data.tutorUid.size() <= 128 &&
+        data.tutorId is string && data.tutorId.size() >= 1 && data.tutorId.size() <= 64 &&
+        data.tutorName is string && data.tutorName.size() >= 1 && data.tutorName.size() <= 150 &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 100 &&
+        data.date is string && data.date.size() >= 4 && data.date.size() <= 32 &&
+        data.start is string && data.start.size() >= 2 && data.start.size() <= 16 &&
+        data.end is string && data.end.size() >= 2 && data.end.size() <= 16 &&
+        data.status in ['open', 'booked', 'completed', 'cancelled', 'inactive'] &&
+        (!('studentUid' in data) || (data.studentUid is string && data.studentUid.size() <= 128)) &&
+        (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 150)) &&
+        (!('studentEmail' in data) || (data.studentEmail is string && data.studentEmail.size() <= 200)) &&
+        (!('requestId' in data) || (data.requestId is string && data.requestId.size() <= 128)) &&
+        (!('course' in data) || (data.course is string && data.course.size() <= 32)) &&
+        (!('topic' in data) || (data.topic is string && data.topic.size() <= 160)) &&
+        (!('encryptedProblem' in data) || isValidEncryptedBlob(data.encryptedProblem)) &&
+        (!('encryptedBrief' in data) || isValidEncryptedBlob(data.encryptedBrief)) &&
+        (!('encryptedTutorNotes' in data) || isValidEncryptedBlob(data.encryptedTutorNotes)) &&
+        (!('encryptedTutorFeedback' in data) || isValidEncryptedBlob(data.encryptedTutorFeedback)) &&
+        (!('attachments' in data) || isValidAttachmentsList(data.attachments)) &&
+        (!('rescheduleStatus' in data) || data.rescheduleStatus in ['none', 'requested', 'approved', 'declined']) &&
+        (!('rescheduleReason' in data) || (data.rescheduleReason is string && data.rescheduleReason.size() <= 600)) &&
+        (!('reschedulePreferredSlotId' in data) || (data.reschedulePreferredSlotId is string && data.reschedulePreferredSlotId.size() <= 128)) &&
+        (!('reschedulePreferredWhen' in data) || (data.reschedulePreferredWhen is string && data.reschedulePreferredWhen.size() <= 120)) &&
+        (!('rescheduleRequestedAt' in data) || data.rescheduleRequestedAt is timestamp) &&
+        (!('rescheduleResponseNote' in data) || (data.rescheduleResponseNote is string && data.rescheduleResponseNote.size() <= 600)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTutorSchedule(data) {
+      return data.keys().hasAll(['tutorUid', 'tutorId', 'tutorName', 'campus', 'days', 'timeSlots', 'scheduleSlots', 'updatedAt']) &&
+        data.keys().hasOnly(['tutorUid', 'tutorId', 'tutorName', 'campus', 'days', 'timeSlots', 'scheduleSlots', 'updatedAt']) &&
+        data.tutorUid is string && data.tutorUid.size() >= 1 && data.tutorUid.size() <= 128 &&
+        data.tutorId is string && data.tutorId.size() >= 1 && data.tutorId.size() <= 64 &&
+        data.tutorName is string && data.tutorName.size() >= 1 && data.tutorName.size() <= 150 &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 100 &&
+        isValidStringArray(data.days, 7) &&
+        isValidStringArray(data.timeSlots, 24) &&
+        isValidStringArray(data.scheduleSlots, 120) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBookmark(data) {
+      return data.keys().hasAll(['studentUid', 'course', 'topic', 'title', 'encryptedNote', 'createdAt']) &&
+        data.keys().hasOnly(['studentUid', 'course', 'topic', 'title', 'encryptedNote', 'requestId', 'createdAt']) &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        data.course is string && data.course.size() >= 2 && data.course.size() <= 32 &&
+        data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 160 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        isValidEncryptedBlob(data.encryptedNote) &&
+        (!('requestId' in data) || (data.requestId is string && data.requestId.size() <= 128)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidProgress(data) {
+      return data.keys().hasAll(['studentUid', 'course', 'topic', 'attempts', 'bestScore', 'lastStatus', 'updatedAt']) &&
+        data.keys().hasOnly(['studentUid', 'course', 'topic', 'attempts', 'bestScore', 'latestScore', 'previousScore', 'lastStatus', 'updatedAt']) &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        data.course is string && data.course.size() >= 2 && data.course.size() <= 32 &&
+        data.topic is string && data.topic.size() >= 1 && data.topic.size() <= 160 &&
+        data.attempts is number && data.attempts >= 0 && data.attempts <= 10000 &&
+        data.bestScore is number && data.bestScore >= 0 && data.bestScore <= 1 &&
+        (!('latestScore' in data) || (data.latestScore is number && data.latestScore >= 0 && data.latestScore <= 1)) &&
+        (!('previousScore' in data) || (data.previousScore is number && data.previousScore >= 0 && data.previousScore <= 1)) &&
+        data.lastStatus is string && data.lastStatus.size() >= 1 && data.lastStatus.size() <= 64 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUsageLog(data) {
+      return data.keys().hasAll(['actorUid', 'actorRole', 'action', 'detail', 'createdAt']) &&
+        data.keys().hasOnly(['actorUid', 'actorRole', 'action', 'course', 'requestId', 'detail', 'createdAt']) &&
+        data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+        data.actorRole in ['student', 'tutor', 'admin', 'applicant'] &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+        (!('course' in data) || (data.course is string && data.course.size() <= 32)) &&
+        (!('requestId' in data) || (data.requestId is string && data.requestId.size() <= 128)) &&
+        data.detail is string && data.detail.size() >= 1 && data.detail.size() <= 500 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidTutorApplication(data) {
+      return data.keys().hasAll(['applicantUid', 'applicantEmail', 'applicantName', 'campus', 'applicantType', 'status', 'autoScreened', 'matchedCourses', 'requestedCourses', 'approvedCourses', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['applicantUid', 'applicantEmail', 'applicantName', 'campus', 'applicantType', 'status', 'autoScreened', 'screeningReason', 'gpa', 'completedSemesters', 'completedCredits', 'matchedCourses', 'requestedCourses', 'approvedCourses', 'documentFileName', 'documentMimeType', 'encryptedParsedTranscript', 'encryptedDocument', 'adminNotes', 'reviewedBy', 'reviewedAt', 'emailNotificationStatus', 'createdAt', 'updatedAt']) &&
+        data.applicantUid is string && data.applicantUid.size() >= 1 && data.applicantUid.size() <= 128 &&
+        data.applicantEmail is string && data.applicantEmail.size() >= 3 && data.applicantEmail.size() <= 200 &&
+        data.applicantName is string && data.applicantName.size() >= 1 && data.applicantName.size() <= 150 &&
+        data.campus is string && data.campus.size() >= 1 && data.campus.size() <= 100 &&
+        data.applicantType in ['student', 'faculty'] &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        data.autoScreened is bool &&
+        (!('screeningReason' in data) || (data.screeningReason is string && data.screeningReason.size() <= 1000)) &&
+        (!('gpa' in data) || (data.gpa is number && data.gpa >= 0 && data.gpa <= 4.5)) &&
+        (!('completedSemesters' in data) || (data.completedSemesters is number && data.completedSemesters >= 0 && data.completedSemesters <= 40)) &&
+        (!('completedCredits' in data) || (data.completedCredits is number && data.completedCredits >= 0 && data.completedCredits <= 500)) &&
+        isValidStringArray(data.matchedCourses, 50) &&
+        isValidStringArray(data.requestedCourses, 50) &&
+        isValidStringArray(data.approvedCourses, 50) &&
+        (!('documentFileName' in data) || (data.documentFileName is string && data.documentFileName.size() <= 200)) &&
+        (!('documentMimeType' in data) || (data.documentMimeType is string && data.documentMimeType.size() <= 100)) &&
+        (!('encryptedParsedTranscript' in data) || isValidEncryptedBlob(data.encryptedParsedTranscript)) &&
+        (!('encryptedDocument' in data) || isValidEncryptedBlob(data.encryptedDocument)) &&
+        (!('adminNotes' in data) || (data.adminNotes is string && data.adminNotes.size() <= 1000)) &&
+        (!('reviewedBy' in data) || (data.reviewedBy is string && data.reviewedBy.size() <= 200)) &&
+        (!('reviewedAt' in data) || data.reviewedAt is timestamp) &&
+        (!('emailNotificationStatus' in data) || (data.emailNotificationStatus is string && data.emailNotificationStatus.size() <= 300)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOnboardingSettings(data) {
+      return data.keys().hasAll(['minGpa', 'requireFirstSemesterCompleted', 'requireFacultyDocs', 'updatedAt']) &&
+        data.keys().hasOnly(['minGpa', 'requireFirstSemesterCompleted', 'requireFacultyDocs', 'updatedBy', 'updatedAt']) &&
+        data.minGpa is number && data.minGpa >= 0 && data.minGpa <= 4 &&
+        data.requireFirstSemesterCompleted is bool &&
+        data.requireFacultyDocs is bool &&
+        (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 200)) &&
+        data.updatedAt is timestamp;
+    }
+
+    // Health check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(userId) && (
+            (incoming().role == 'student' && incoming().active == true &&
+              (!('status' in incoming()) || incoming().status == 'approved')) ||
+            (incoming().role == 'tutor' && incoming().active == false &&
+              (!('status' in incoming()) || incoming().status == 'pending')) ||
+            (incoming().role == 'applicant' && incoming().active == true) ||
+            (incoming().role == 'tutor' && isDemoTutorEmail() && incoming().active == true) ||
+            (incoming().role == 'admin' && isBootstrappedAdmin() && incoming().active == true)
+          ))
+        );
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().active == existing().active &&
+            incoming().refId == existing().refId && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['name', 'campus', 'applicantType', 'updatedAt']) ||
+              (isActiveTutor() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'campus', 'subjects', 'updatedAt']))
+            ))
+        );
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Courses collection
+    match /courses/{courseId} {
+      allow get: if isAdmin() || (isSignedIn() && isValidId(courseId));
+      allow list: if isAdmin() || isSignedIn();
+      allow create: if isAdmin() && isValidId(courseId) && isValidCourse(incoming()) &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(courseId) && isValidCourse(incoming()) &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(courseId);
+    }
+
+    // Materials collection (PDF course files: readable ONLY by admins and active tutors; writable only by admins)
+    match /materials/{materialId} {
+      allow get: if isAdmin() || (isActiveTutor() && isValidId(materialId));
+      allow list: if isAdmin() || isActiveTutor();
+      allow create: if isAdmin() && isValidId(materialId) && isValidMaterial(incoming()) &&
+        incoming().uploadedAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(materialId) && isValidMaterial(incoming()) &&
+        incoming().uploadedAt == existing().uploadedAt && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(materialId);
+
+      // Split base64 PDF parts (<=700 KB per document)
+      match /materialFiles/{partId} {
+        allow get: if isAdmin() || (isActiveTutor() && isValidId(materialId) && isValidId(partId));
+        allow list: if isAdmin() || isActiveTutor();
+        allow create: if isAdmin() && isValidId(materialId) && isValidId(partId) &&
+          isValidMaterialFilePart(incoming()) && incoming().materialId == materialId &&
+          incoming().createdAt == request.time;
+        allow update: if isAdmin() && isValidId(materialId) && isValidId(partId) &&
+          isValidMaterialFilePart(incoming()) && incoming().materialId == existing().materialId &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isAdmin() && isValidId(materialId) && isValidId(partId);
+      }
+    }
+
+    // Chunks collection (PDF text chunks with embeddings: readable ONLY by admins and active tutors; writable only by admins)
+    match /chunks/{chunkId} {
+      allow get: if isAdmin() || (isActiveTutor() && isValidId(chunkId));
+      allow list: if isAdmin() || isActiveTutor();
+      allow create: if isAdmin() && isValidId(chunkId) && isValidChunk(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(chunkId) && isValidChunk(incoming()) &&
+        incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(chunkId);
+    }
+
+    // Requests collection (students read/write only their own; admins full access)
+    match /requests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) &&
+        (resource == null || existing().studentUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.studentUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(requestId) && isValidRequest(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveStudent() && incoming().studentUid == request.auth.uid)
+        );
+      allow update: if isSignedIn() && isValidId(requestId) && isValidRequest(incoming()) &&
+        incoming().studentUid == existing().studentUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveStudent() &&
+            existing().studentUid == request.auth.uid &&
+            !(existing().status in ['Cancelled', 'Resolved by AI', 'Booked with tutor']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'course', 'topic', 'status', 'encryptedText', 'encryptedStudentNote',
+              'encryptedBrief', 'attachments', 'diagScore', 'retestScore', 'weakSubtopics',
+              'tutor', 'when', 'sheetRequestId', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(requestId) &&
+        (isAdmin() || (isActiveStudent() && existing().studentUid == request.auth.uid && existing().status == 'Open'));
+    }
+
+    // Diagnostics collection (students read/write only their own; admins full access)
+    match /diagnostics/{diagnosticId} {
+      allow get: if isSignedIn() && isValidId(diagnosticId) &&
+        (resource == null || existing().studentUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.studentUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(diagnosticId) && isValidDiagnostic(incoming()) &&
+        incoming().createdAt == request.time &&
+        (!('updatedAt' in incoming()) || incoming().updatedAt == request.time) && (
+          isAdmin() ||
+          (isActiveStudent() && incoming().studentUid == request.auth.uid &&
+            get(/databases/$(database)/documents/requests/$(incoming().requestId)).data.studentUid == request.auth.uid)
+        );
+      allow update: if isSignedIn() && isValidId(diagnosticId) && isValidDiagnostic(incoming()) &&
+        incoming().studentUid == existing().studentUid &&
+        incoming().requestId == existing().requestId &&
+        incoming().stage == existing().stage &&
+        incoming().createdAt == existing().createdAt &&
+        (!('updatedAt' in incoming()) || incoming().updatedAt == request.time) && (
+          isAdmin() ||
+          (isActiveStudent() && existing().studentUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'currentIndex', 'score', 'totalQuestions', 'correctCount',
+              'weakSubtopics', 'encryptedAnswers', 'encryptedWrittenAnswers',
+              'encryptedQuestions', 'encryptedStudyPack', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(diagnosticId) &&
+        (isAdmin() || (isActiveStudent() && existing().studentUid == request.auth.uid));
+    }
+
+    // Bookings collection (tutors read/update only assigned bookings & own slots; students read own or open slots; admins full access)
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+        isAdmin() ||
+        (isActiveTutor() && existing().tutorUid == request.auth.uid) ||
+        (isActiveStudent() && (existing().studentUid == request.auth.uid || existing().status == 'open'))
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        (isActiveTutor() && resource.data.tutorUid == request.auth.uid) ||
+        (isActiveStudent() && (resource.data.studentUid == request.auth.uid || resource.data.status == 'open'))
+      );
+      allow create: if isSignedIn() && isValidId(bookingId) && isValidBooking(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveTutor() && incoming().tutorUid == request.auth.uid && incoming().status in ['open', 'inactive']) ||
+          (isActiveStudent() && incoming().studentUid == request.auth.uid && incoming().status == 'booked')
+        );
+      allow update: if isSignedIn() && isValidId(bookingId) && isValidBooking(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveTutor() &&
+            incoming().tutorUid == existing().tutorUid &&
+            existing().tutorUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'date', 'start', 'end', 'status', 'encryptedTutorNotes', 'encryptedTutorFeedback',
+              'rescheduleStatus', 'rescheduleResponseNote', 'updatedAt'
+            ])) ||
+          (isActiveStudent() &&
+            incoming().tutorUid == existing().tutorUid &&
+            existing().status == 'open' &&
+            incoming().status == 'booked' &&
+            incoming().studentUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'studentUid', 'studentName', 'studentEmail',
+              'requestId', 'course', 'topic', 'encryptedProblem', 'encryptedBrief', 'attachments', 'updatedAt'
+            ])) ||
+          (isActiveStudent() &&
+            incoming().tutorUid == existing().tutorUid &&
+            existing().studentUid == request.auth.uid &&
+            incoming().studentUid == existing().studentUid &&
+            existing().status == 'booked' &&
+            incoming().status == 'booked' &&
+            incoming().rescheduleStatus == 'requested' &&
+            'rescheduleReason' in incoming() &&
+            incoming().rescheduleReason is string &&
+            incoming().rescheduleReason.size() >= 3 &&
+            incoming().rescheduleRequestedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'rescheduleStatus', 'rescheduleReason', 'reschedulePreferredSlotId',
+              'reschedulePreferredWhen', 'rescheduleRequestedAt', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(bookingId) && (
+        isAdmin() ||
+        (isActiveTutor() && existing().tutorUid == request.auth.uid && existing().status in ['open', 'inactive'])
+      );
+    }
+
+    // Tutor weekly recurring availability schedules
+    match /tutorSchedules/{tutorUid} {
+      allow get: if isSignedIn() && isValidId(tutorUid) && (
+        isAdmin() || (isActiveTutor() && isOwner(tutorUid))
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() || (isActiveTutor() && resource.data.tutorUid == request.auth.uid)
+      );
+      allow create: if isSignedIn() && isValidId(tutorUid) && isValidTutorSchedule(incoming()) &&
+        incoming().tutorUid == tutorUid &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (isActiveTutor() && isOwner(tutorUid))
+        );
+      allow update: if isSignedIn() && isValidId(tutorUid) && isValidTutorSchedule(incoming()) &&
+        incoming().tutorUid == existing().tutorUid &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveTutor() && isOwner(tutorUid) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'tutorId', 'tutorName', 'campus', 'days', 'timeSlots', 'scheduleSlots', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(tutorUid) && (
+        isAdmin() || (isActiveTutor() && isOwner(tutorUid))
+      );
+    }
+
+    // Bookmarks collection (students read/write/delete only their own; admins full access)
+    match /bookmarks/{bookmarkId} {
+      allow get: if isSignedIn() && isValidId(bookmarkId) &&
+        (resource == null || existing().studentUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.studentUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(bookmarkId) && isValidBookmark(incoming()) &&
+        incoming().createdAt == request.time && (
+          isAdmin() ||
+          (isActiveStudent() && incoming().studentUid == request.auth.uid)
+        );
+      allow update: if isSignedIn() && isValidId(bookmarkId) && isValidBookmark(incoming()) &&
+        incoming().studentUid == existing().studentUid &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (isActiveStudent() && existing().studentUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['course', 'topic', 'title', 'encryptedNote', 'requestId']))
+        );
+      allow delete: if isSignedIn() && isValidId(bookmarkId) &&
+        (isAdmin() || (isActiveStudent() && existing().studentUid == request.auth.uid));
+    }
+
+    // Progress collection (students read/write only their own; admins full access)
+    match /progress/{progressId} {
+      allow get: if isSignedIn() && isValidId(progressId) &&
+        (resource == null || existing().studentUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.studentUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(progressId) && isValidProgress(incoming()) &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveStudent() && incoming().studentUid == request.auth.uid)
+        );
+      allow update: if isSignedIn() && isValidId(progressId) && isValidProgress(incoming()) &&
+        incoming().studentUid == existing().studentUid &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveStudent() && existing().studentUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['attempts', 'bestScore', 'latestScore', 'previousScore', 'lastStatus', 'updatedAt']))
+        );
+      allow delete: if isAdmin() && isValidId(progressId);
+    }
+
+    // Usage logs collection (writable by signed-in users, readable only by admins)
+    match /usageLogs/{logId} {
+      allow get: if isAdmin() && isValidId(logId);
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isValidId(logId) && isValidUsageLog(incoming()) &&
+        incoming().actorUid == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(logId) && isValidUsageLog(incoming());
+      allow delete: if isAdmin() && isValidId(logId);
+    }
+
+    // Tutor applications collection (applicants create/read/update own; admins full review access)
+    match /tutorApplications/{applicationId} {
+      allow get: if isSignedIn() && isValidId(applicationId) &&
+        (resource == null || existing().applicantUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() &&
+        (resource.data.applicantUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(applicationId) && isValidTutorApplication(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (incoming().applicantUid == request.auth.uid &&
+            incoming().status in ['pending', 'rejected'] &&
+            (incoming().status == 'pending' || incoming().autoScreened == true) &&
+            incoming().approvedCourses.size() == 0 &&
+            !('reviewedBy' in incoming()) &&
+            !('reviewedAt' in incoming()))
+        );
+      allow update: if isSignedIn() && isValidId(applicationId) && isValidTutorApplication(incoming()) &&
+        incoming().applicantUid == existing().applicantUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().applicantUid == request.auth.uid &&
+            incoming().status in ['pending', 'rejected'] &&
+            (incoming().status == 'pending' || incoming().autoScreened == true) &&
+            incoming().approvedCourses.size() == 0 &&
+            !('reviewedBy' in incoming()) &&
+            !('reviewedAt' in incoming()))
+        );
+      allow delete: if isAdmin() && isValidId(applicationId);
+    }
+
+    // Platform onboarding settings (readable by signed-in users, writable only by admins)
+    match /settings/{settingId} {
+      allow get: if isSignedIn() && isValidId(settingId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(settingId) && isValidOnboardingSettings(incoming()) &&
+        incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(settingId) && isValidOnboardingSettings(incoming()) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(settingId);
+    }
+
+    function userSubjectsString() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subjects;
+    }
+
+    function studentEnrolledInCourse(courseCode) {
+      return userDocExists() &&
+        'subjects' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+        userSubjectsString() is string &&
+        courseCode in userSubjectsString().split(',');
+    }
+
+    function canStudentAccessTutorNoteData(noteData) {
+      return isActiveStudent() && (
+        (noteData.audience == 'student' && 'studentId' in noteData && noteData.studentId == request.auth.uid) ||
+        (noteData.audience == 'course' && studentEnrolledInCourse(noteData.courseCode))
+      );
+    }
+
+    function canStudentAccessTutorNoteById(noteId) {
+      return isActiveStudent() &&
+        exists(/databases/$(database)/documents/tutorNotes/$(noteId)) &&
+        canStudentAccessTutorNoteData(get(/databases/$(database)/documents/tutorNotes/$(noteId)).data);
+    }
+
+    function isValidTutorNoteAttachment(att) {
+      return att is map &&
+        att.keys().hasAll(['id', 'fileName', 'mimeType', 'size', 'partCount']) &&
+        att.keys().hasOnly(['id', 'fileName', 'mimeType', 'size', 'partCount']) &&
+        att.id is string && att.id.size() >= 1 && att.id.size() <= 128 &&
+        att.fileName is string && att.fileName.size() >= 1 && att.fileName.size() <= 255 &&
+        att.mimeType in ['image/png', 'image/jpeg', 'application/pdf'] &&
+        att.size is number && att.size >= 1 && att.size <= 10485760 &&
+        att.partCount is number && att.partCount >= 1 && att.partCount <= 50;
+    }
+
+    function isValidTutorNoteAttachmentsList(list) {
+      return list is list &&
+        list.size() <= 3 &&
+        (list.size() == 0 || isValidTutorNoteAttachment(list[0])) &&
+        (list.size() < 2 || isValidTutorNoteAttachment(list[1])) &&
+        (list.size() < 3 || isValidTutorNoteAttachment(list[2]));
+    }
+
+    function isValidTutorNote(data) {
+      return data.keys().hasAll(['tutorId', 'tutorName', 'courseCode', 'audience', 'title', 'body', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['tutorId', 'tutorName', 'courseCode', 'audience', 'studentId', 'studentName', 'title', 'body', 'attachments', 'createdAt', 'updatedAt']) &&
+        data.tutorId is string && data.tutorId.size() >= 1 && data.tutorId.size() <= 128 &&
+        data.tutorName is string && data.tutorName.size() >= 1 && data.tutorName.size() <= 150 &&
+        data.courseCode is string && data.courseCode.size() >= 2 && data.courseCode.size() <= 32 &&
+        data.audience in ['student', 'course'] &&
+        (
+          (data.audience == 'student' && 'studentId' in data && data.studentId is string && data.studentId.size() >= 1 && data.studentId.size() <= 128) ||
+          (data.audience == 'course' && !('studentId' in data))
+        ) &&
+        (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 150)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 10000 &&
+        (!('attachments' in data) || isValidTutorNoteAttachmentsList(data.attachments)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTutorNoteRead(data) {
+      return data.keys().hasAll(['studentUid', 'readAt']) &&
+        data.keys().hasOnly(['studentUid', 'studentName', 'readAt']) &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 150)) &&
+        data.readAt is timestamp;
+    }
+
+    function isValidTutorNoteReply(data) {
+      return data.keys().hasAll(['noteId', 'studentUid', 'authorUid', 'authorName', 'authorRole', 'text', 'createdAt']) &&
+        data.keys().hasOnly(['noteId', 'studentUid', 'authorUid', 'authorName', 'authorRole', 'text', 'createdAt']) &&
+        data.noteId is string && data.noteId.size() >= 1 && data.noteId.size() <= 128 &&
+        data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 &&
+        data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128 &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 150 &&
+        data.authorRole in ['student', 'tutor'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 2000 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidTutorNoteFilePart(data) {
+      return data.keys().hasAll(['attachmentId', 'tutorId', 'partIndex', 'totalParts', 'data', 'createdAt']) &&
+        data.keys().hasOnly(['attachmentId', 'tutorId', 'partIndex', 'totalParts', 'data', 'createdAt']) &&
+        data.attachmentId is string && data.attachmentId.size() >= 1 && data.attachmentId.size() <= 128 &&
+        data.tutorId is string && data.tutorId.size() >= 1 && data.tutorId.size() <= 128 &&
+        data.partIndex is number && data.partIndex >= 0 && data.partIndex <= 50 &&
+        data.totalParts is number && data.totalParts >= 1 && data.totalParts <= 50 &&
+        data.data is string && data.data.size() >= 1 && data.data.size() <= 720000 &&
+        data.createdAt is timestamp;
+    }
+
+    // Tutor -> Student Notes & Messages
+    match /tutorNotes/{noteId} {
+      allow get: if isValidId(noteId) && (
+        isAdmin() ||
+        (isActiveTutor() && existing().tutorId == request.auth.uid) ||
+        canStudentAccessTutorNoteData(existing())
+      );
+      allow list: if isAdmin() ||
+        (isActiveTutor() && resource.data.tutorId == request.auth.uid) ||
+        canStudentAccessTutorNoteData(resource.data);
+      allow create: if isActiveTutor() && isValidId(noteId) && isValidTutorNote(incoming()) &&
+        incoming().tutorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(noteId) && isValidTutorNote(incoming()) &&
+        incoming().tutorId == existing().tutorId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isActiveTutor() && existing().tutorId == request.auth.uid)
+        );
+      allow delete: if isValidId(noteId) && (
+        isAdmin() ||
+        (isActiveTutor() && existing().tutorId == request.auth.uid)
+      );
+
+      match /reads/{studentUid} {
+        allow get: if isValidId(noteId) && isValidId(studentUid) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid) ||
+          (isActiveStudent() && studentUid == request.auth.uid)
+        );
+        allow list: if isValidId(noteId) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid) ||
+          (isActiveStudent() && resource.data.studentUid == request.auth.uid)
+        );
+        allow create, update: if isValidId(noteId) && isValidId(studentUid) &&
+          isValidTutorNoteRead(incoming()) &&
+          incoming().readAt == request.time && (
+            isAdmin() ||
+            (isActiveStudent() && studentUid == request.auth.uid &&
+              incoming().studentUid == request.auth.uid &&
+              canStudentAccessTutorNoteById(noteId))
+          );
+        allow delete: if isValidId(noteId) && isValidId(studentUid) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid)
+        );
+      }
+
+      match /replies/{replyId} {
+        allow get: if isValidId(noteId) && isValidId(replyId) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid) ||
+          (isActiveStudent() && existing().studentUid == request.auth.uid)
+        );
+        allow list: if isValidId(noteId) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid) ||
+          (isActiveStudent() && resource.data.studentUid == request.auth.uid)
+        );
+        allow create: if isValidId(noteId) && isValidId(replyId) &&
+          isValidTutorNoteReply(incoming()) &&
+          incoming().noteId == noteId &&
+          incoming().createdAt == request.time &&
+          get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.audience == 'student' && (
+            isAdmin() ||
+            (isActiveStudent() &&
+              incoming().authorRole == 'student' &&
+              incoming().authorUid == request.auth.uid &&
+              incoming().studentUid == request.auth.uid &&
+              get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.studentId == request.auth.uid) ||
+            (isActiveTutor() &&
+              incoming().authorRole == 'tutor' &&
+              incoming().authorUid == request.auth.uid &&
+              get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid &&
+              incoming().studentUid == get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.studentId)
+          );
+        allow delete: if isValidId(noteId) && isValidId(replyId) && (
+          isAdmin() ||
+          (isActiveTutor() && get(/databases/$(database)/documents/tutorNotes/$(noteId)).data.tutorId == request.auth.uid)
+        );
+      }
+    }
+
+    // Server-managed binary parts for tutor note attachments (no direct student access)
+    match /tutorNoteFiles/{partId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() && isValidId(partId) && isValidTutorNoteFilePart(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(partId) && isValidTutorNoteFilePart(incoming());
+      allow delete: if isAdmin() && isValidId(partId);
+    }
+  }
+}

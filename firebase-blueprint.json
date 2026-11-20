@@ -1,0 +1,471 @@
+{
+  "entities": {
+    "EncryptedBlob": {
+      "title": "EncryptedBlob",
+      "description": "AES-256-GCM encrypted payload stored as base64 iv (12 bytes), auth tag, and ciphertext.",
+      "type": "object",
+      "properties": {
+        "iv": { "type": "string", "maxLength": 64 },
+        "tag": { "type": "string", "maxLength": 64 },
+        "ciphertext": { "type": "string", "maxLength": 950000 }
+      },
+      "required": ["iv", "tag", "ciphertext"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Authenticated Sanad user profile stored at users/{uid}.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "name": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["student", "tutor", "admin", "applicant"] },
+        "applicantType": { "type": "string", "enum": ["student", "faculty"] },
+        "campus": { "type": "string", "maxLength": 100 },
+        "refId": { "type": "string", "maxLength": 64 },
+        "active": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "disabled"] },
+        "subjects": { "type": "string", "maxLength": 300 },
+        "sheetEmail": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "name", "role", "campus", "refId", "active", "createdAt", "updatedAt"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Academic course available in Sanad.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "maxLength": 200 },
+        "department": { "type": "string", "maxLength": 120 },
+        "campus": { "type": "string", "maxLength": 100 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "title", "active", "createdAt", "updatedAt"]
+    },
+    "Material": {
+      "title": "Material",
+      "description": "Uploaded PDF course material metadata readable by admins and active tutors, and writable only by admins.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string", "maxLength": 255 },
+        "topicTitle": { "type": "string", "maxLength": 255 },
+        "courseCode": { "type": "string", "maxLength": 32 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "fileUrl": { "type": "string", "maxLength": 2000 },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "storageMode": { "type": "string", "enum": ["storage", "firestore_parts", "text_only"] },
+        "partCount": { "type": "number" },
+        "uploadedAt": { "type": "string", "format": "date-time" },
+        "uploadedBy": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["uploading", "indexing", "indexed", "failed"] },
+        "chunkCount": { "type": "number" },
+        "size": { "type": "number" },
+        "errorMessage": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fileName", "courseCode", "courseName", "uploadedAt", "uploadedBy", "status", "chunkCount", "size", "updatedAt"]
+    },
+    "MaterialFilePart": {
+      "title": "MaterialFilePart",
+      "description": "Base64 PDF file part (max 700 KB) stored in materials/{materialId}/materialFiles subcollection.",
+      "type": "object",
+      "properties": {
+        "materialId": { "type": "string", "maxLength": 128 },
+        "partIndex": { "type": "number" },
+        "totalParts": { "type": "number" },
+        "data": { "type": "string", "maxLength": 720000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["materialId", "partIndex", "totalParts", "data", "createdAt"]
+    },
+    "Chunk": {
+      "title": "Chunk",
+      "description": "Extracted PDF text chunk with vector embedding readable only by admins and active tutors, and writable only by admins.",
+      "type": "object",
+      "properties": {
+        "materialId": { "type": "string", "maxLength": 128 },
+        "courseCode": { "type": "string", "maxLength": 32 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "chunkIndex": { "type": "number" },
+        "text": { "type": "string", "maxLength": 20000 },
+        "embedding": { "type": "object" },
+        "embeddingModel": { "type": "string", "maxLength": 80 },
+        "embeddingDim": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["materialId", "courseCode", "courseName", "fileName", "chunkIndex", "text", "embedding", "createdAt"]
+    },
+    "RequestAttachment": {
+      "title": "RequestAttachment",
+      "description": "Metadata and extracted text for a student file or screenshot attached to a help request.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string", "maxLength": 255 },
+        "mimeType": { "type": "string", "enum": ["image/png", "image/jpeg", "application/pdf"] },
+        "size": { "type": "number" },
+        "extractedText": { "type": "string", "maxLength": 40000 }
+      },
+      "required": ["fileName", "mimeType", "size", "extractedText"]
+    },
+    "HelpRequest": {
+      "title": "HelpRequest",
+      "description": "Student help request with AES-256-GCM encrypted description, student note, and tutor brief.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "campus": { "type": "string", "maxLength": 100 },
+        "course": { "type": "string", "maxLength": 32 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "status": { "type": "string", "enum": ["Open", "Diagnostic", "Study Pack", "Resolved by AI", "Escalated to tutor", "Booked with tutor", "Waitlist", "Cancelled"] },
+        "encryptedText": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedStudentNote": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedBrief": { "$ref": "#/entities/EncryptedBlob" },
+        "attachments": { "type": "array" },
+        "diagScore": { "type": "number" },
+        "retestScore": { "type": "number" },
+        "weakSubtopics": { "type": "array" },
+        "tutor": { "type": "string", "maxLength": 150 },
+        "when": { "type": "string", "maxLength": 120 },
+        "sheetRequestId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "studentEmail", "studentName", "campus", "course", "status", "encryptedText", "createdAt", "updatedAt"]
+    },
+    "Diagnostic": {
+      "title": "Diagnostic",
+      "description": "Diagnostic or retest submission with AES-256-GCM encrypted answers and written responses.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "stage": { "type": "string", "enum": ["diagnostic", "retest"] },
+        "course": { "type": "string", "maxLength": 32 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "status": { "type": "string", "enum": ["in_progress", "completed"] },
+        "currentIndex": { "type": "number" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "weakSubtopics": { "type": "array" },
+        "encryptedAnswers": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedWrittenAnswers": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedQuestions": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedStudyPack": { "$ref": "#/entities/EncryptedBlob" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "requestId", "stage", "course", "topic", "score", "totalQuestions", "correctCount", "encryptedAnswers", "createdAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Tutor slot or booked tutoring session with encrypted student problem, brief, tutor notes, and student feedback.",
+      "type": "object",
+      "properties": {
+        "tutorUid": { "type": "string", "maxLength": 128 },
+        "tutorId": { "type": "string", "maxLength": 64 },
+        "tutorName": { "type": "string", "maxLength": 150 },
+        "campus": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 32 },
+        "start": { "type": "string", "maxLength": 16 },
+        "end": { "type": "string", "maxLength": 16 },
+        "status": { "type": "string", "enum": ["open", "booked", "completed", "cancelled", "inactive"] },
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "studentEmail": { "type": "string", "maxLength": 200 },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "course": { "type": "string", "maxLength": 32 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "encryptedProblem": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedBrief": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedTutorNotes": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedTutorFeedback": { "$ref": "#/entities/EncryptedBlob" },
+        "attachments": { "type": "array" },
+        "rescheduleStatus": { "type": "string", "enum": ["none", "requested", "approved", "declined"] },
+        "rescheduleReason": { "type": "string", "maxLength": 600 },
+        "reschedulePreferredSlotId": { "type": "string", "maxLength": 128 },
+        "reschedulePreferredWhen": { "type": "string", "maxLength": 120 },
+        "rescheduleRequestedAt": { "type": "string", "format": "date-time" },
+        "rescheduleResponseNote": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tutorUid", "tutorId", "tutorName", "campus", "date", "start", "end", "status", "createdAt", "updatedAt"]
+    },
+    "TutorSchedule": {
+      "title": "TutorSchedule",
+      "description": "Tutor weekly recurring availability schedule defining available days and time slots.",
+      "type": "object",
+      "properties": {
+        "tutorUid": { "type": "string", "maxLength": 128 },
+        "tutorId": { "type": "string", "maxLength": 64 },
+        "tutorName": { "type": "string", "maxLength": 150 },
+        "campus": { "type": "string", "maxLength": 100 },
+        "days": { "type": "array" },
+        "timeSlots": { "type": "array" },
+        "scheduleSlots": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tutorUid", "tutorId", "tutorName", "campus", "days", "timeSlots", "scheduleSlots", "updatedAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "Student bookmark with encrypted personal study note.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "course": { "type": "string", "maxLength": 32 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "title": { "type": "string", "maxLength": 200 },
+        "encryptedNote": { "$ref": "#/entities/EncryptedBlob" },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "course", "topic", "title", "encryptedNote", "createdAt"]
+    },
+    "Progress": {
+      "title": "Progress",
+      "description": "Student topic mastery and attempt progress.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "course": { "type": "string", "maxLength": 32 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "attempts": { "type": "number" },
+        "bestScore": { "type": "number" },
+        "latestScore": { "type": "number" },
+        "previousScore": { "type": "number" },
+        "lastStatus": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "course", "topic", "attempts", "bestScore", "lastStatus", "updatedAt"]
+    },
+    "UsageLog": {
+      "title": "UsageLog",
+      "description": "System usage audit log writable by signed-in users and readable only by admins.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "enum": ["student", "tutor", "admin", "applicant"] },
+        "action": { "type": "string", "maxLength": 80 },
+        "course": { "type": "string", "maxLength": 32 },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "detail": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorRole", "action", "detail", "createdAt"]
+    },
+    "TutorApplication": {
+      "title": "TutorApplication",
+      "description": "Student or Faculty tutor application with AI-parsed transcript, course matches, encrypted documents, and admin review.",
+      "type": "object",
+      "properties": {
+        "applicantUid": { "type": "string", "maxLength": 128 },
+        "applicantEmail": { "type": "string", "maxLength": 200 },
+        "applicantName": { "type": "string", "maxLength": 150 },
+        "campus": { "type": "string", "maxLength": 100 },
+        "applicantType": { "type": "string", "enum": ["student", "faculty"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "autoScreened": { "type": "boolean" },
+        "screeningReason": { "type": "string", "maxLength": 1000 },
+        "gpa": { "type": "number" },
+        "completedSemesters": { "type": "number" },
+        "completedCredits": { "type": "number" },
+        "matchedCourses": { "type": "array" },
+        "requestedCourses": { "type": "array" },
+        "approvedCourses": { "type": "array" },
+        "documentFileName": { "type": "string", "maxLength": 200 },
+        "documentMimeType": { "type": "string", "maxLength": 100 },
+        "encryptedParsedTranscript": { "$ref": "#/entities/EncryptedBlob" },
+        "encryptedDocument": { "$ref": "#/entities/EncryptedBlob" },
+        "adminNotes": { "type": "string", "maxLength": 1000 },
+        "reviewedBy": { "type": "string", "maxLength": 200 },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "emailNotificationStatus": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "applicantUid",
+        "applicantEmail",
+        "applicantName",
+        "campus",
+        "applicantType",
+        "status",
+        "autoScreened",
+        "matchedCourses",
+        "requestedCourses",
+        "approvedCourses",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OnboardingSettings": {
+      "title": "OnboardingSettings",
+      "description": "Configurable tutor application screening thresholds and document requirements.",
+      "type": "object",
+      "properties": {
+        "minGpa": { "type": "number" },
+        "requireFirstSemesterCompleted": { "type": "boolean" },
+        "requireFacultyDocs": { "type": "boolean" },
+        "updatedBy": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["minGpa", "requireFirstSemesterCompleted", "requireFacultyDocs", "updatedAt"]
+    },
+    "TutorNoteAttachment": {
+      "title": "TutorNoteAttachment",
+      "description": "Metadata for an attachment stored on a tutor note; binary parts reside in tutorNoteFiles and are served with authorization checks.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "mimeType": { "type": "string", "enum": ["image/png", "image/jpeg", "application/pdf"] },
+        "size": { "type": "number" },
+        "partCount": { "type": "number" }
+      },
+      "required": ["id", "fileName", "mimeType", "size", "partCount"]
+    },
+    "TutorNote": {
+      "title": "TutorNote",
+      "description": "Tutor-authored message or study note addressed to a specific student or to all students enrolled in a course.",
+      "type": "object",
+      "properties": {
+        "tutorId": { "type": "string", "maxLength": 128 },
+        "tutorName": { "type": "string", "maxLength": 150 },
+        "courseCode": { "type": "string", "maxLength": 32 },
+        "audience": { "type": "string", "enum": ["student", "course"] },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "title": { "type": "string", "maxLength": 200 },
+        "body": { "type": "string", "maxLength": 10000 },
+        "attachments": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tutorId", "tutorName", "courseCode", "audience", "title", "body", "createdAt", "updatedAt"]
+    },
+    "TutorNoteRead": {
+      "title": "TutorNoteRead",
+      "description": "Read receipt recorded when an authorized student opens a tutor note.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 150 },
+        "readAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "readAt"]
+    },
+    "TutorNoteReply": {
+      "title": "TutorNoteReply",
+      "description": "Short reply on a direct student-targeted tutor note.",
+      "type": "object",
+      "properties": {
+        "noteId": { "type": "string", "maxLength": 128 },
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 150 },
+        "authorRole": { "type": "string", "enum": ["student", "tutor"] },
+        "text": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["noteId", "studentUid", "authorUid", "authorName", "authorRole", "text", "createdAt"]
+    },
+    "TutorNoteFilePart": {
+      "title": "TutorNoteFilePart",
+      "description": "Base64 file part (max 700 KB) for a tutor note attachment, accessible only through authorized server routes.",
+      "type": "object",
+      "properties": {
+        "attachmentId": { "type": "string", "maxLength": 128 },
+        "tutorId": { "type": "string", "maxLength": 128 },
+        "partIndex": { "type": "number" },
+        "totalParts": { "type": "number" },
+        "data": { "type": "string", "maxLength": 720000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["attachmentId", "tutorId", "partIndex", "totalParts", "data", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles keyed by Firebase Auth UID with role, name, campus, refId, and active flag."
+    },
+    "/courses/{courseId}": {
+      "schema": { "$ref": "#/entities/Course" },
+      "description": "Catalog of supported HCT courses."
+    },
+    "/materials/{materialId}": {
+      "schema": { "$ref": "#/entities/Material" },
+      "description": "Uploaded course PDF metadata readable only by admins and active tutors, and writable only by admins."
+    },
+    "/materials/{materialId}/materialFiles/{partId}": {
+      "schema": { "$ref": "#/entities/MaterialFilePart" },
+      "description": "Split base64 PDF binary parts (<=700 KB) readable only by admins and active tutors, and writable only by admins."
+    },
+    "/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/Chunk" },
+      "description": "Course PDF text chunks with vector embeddings readable only by admins and active tutors, and writable only by admins."
+    },
+    "/requests/{requestId}": {
+      "schema": { "$ref": "#/entities/HelpRequest" },
+      "description": "Student help requests; students read and write only their own."
+    },
+    "/diagnostics/{diagnosticId}": {
+      "schema": { "$ref": "#/entities/Diagnostic" },
+      "description": "Student diagnostic and retest attempts with encrypted answers."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Tutor availability slots and booked sessions; tutors read/update only their assigned bookings, students read open or own bookings and may request reschedule with a reason."
+    },
+    "/tutorSchedules/{tutorUid}": {
+      "schema": { "$ref": "#/entities/TutorSchedule" },
+      "description": "Tutor weekly recurring availability schedule (days and time slots) writable by the owning active tutor or admin."
+    },
+    "/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/Bookmark" },
+      "description": "Student saved topic bookmarks and encrypted personal notes."
+    },
+    "/progress/{progressId}": {
+      "schema": { "$ref": "#/entities/Progress" },
+      "description": "Per-student course/topic progress metrics."
+    },
+    "/usageLogs/{logId}": {
+      "schema": { "$ref": "#/entities/UsageLog" },
+      "description": "Portal activity logs writable by signed-in users and readable only by admins."
+    },
+    "/tutorApplications/{applicationId}": {
+      "schema": { "$ref": "#/entities/TutorApplication" },
+      "description": "Tutor applications submitted by Student or Faculty applicants; applicants read/create their own, admins review and approve/reject."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/OnboardingSettings" },
+      "description": "Platform onboarding settings readable by signed-in users and writable only by admins."
+    },
+    "/tutorNotes/{noteId}": {
+      "schema": { "$ref": "#/entities/TutorNote" },
+      "description": "Tutor messages and notes addressed either directly to one student or to all students enrolled in a course."
+    },
+    "/tutorNotes/{noteId}/reads/{studentUid}": {
+      "schema": { "$ref": "#/entities/TutorNoteRead" },
+      "description": "Read receipts written by authorized students when opening a tutor note."
+    },
+    "/tutorNotes/{noteId}/replies/{replyId}": {
+      "schema": { "$ref": "#/entities/TutorNoteReply" },
+      "description": "Replies exchanged on direct student-targeted tutor notes."
+    },
+    "/tutorNoteFiles/{partId}": {
+      "schema": { "$ref": "#/entities/TutorNoteFilePart" },
+      "description": "Server-managed attachment parts for tutor notes; never directly readable by students."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Sanad – HCT Academic Success Center",
+  "description": "Sanad (سند) is an AI front door for the HCT Academic Success Center that diagnoses first-year student questions using course notes and guides them through diagnostic quizzes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
